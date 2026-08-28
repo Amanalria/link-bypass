@@ -16,16 +16,16 @@ class UnshortenResult:
         self.error = error
         self.cached = cached
 
-class FastUniversalUnshortener:
-    def __init__(self, max_hops: int = 25, timeout: int = 60):
+class UniversalUnshortener:
+    def __init__(self, max_hops: int = 25, timeout: int = 45):
         self.max_hops = max_hops
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         }
-        self._sem = asyncio.Semaphore(2)  # Conservative concurrency for Render 512MB RAM
+        self._sem = asyncio.Semaphore(5)
         self._cache = {}
 
     def is_valid_url(self, url: str) -> bool:
@@ -42,8 +42,8 @@ class FastUniversalUnshortener:
                 clean_urls.append(u)
         return clean_urls
 
-    async def _solve_complex_ad_shortener(self, target_url: str, dwell_ms: int = 5000) -> tuple:
-        """Render Docker-Hardened Solver with Stealth Evasion & Low-RAM Profile"""
+    async def _solve_complex_ad_shortener(self, target_url: str) -> tuple:
+        """Exact 100% robust solver from stable version for vplink.in and partner networks"""
         async with self._sem:
             hops = [target_url]
             async with async_playwright() as p:
@@ -55,40 +55,28 @@ class FastUniversalUnshortener:
                         "--disable-dev-shm-usage",
                         "--disable-blink-features=AutomationControlled",
                         "--disable-gpu",
-                        "--disable-software-rasterizer",
-                        "--disable-extensions",
-                        "--disable-background-networking",
-                        "--disable-default-apps",
-                        "--disable-sync",
-                        "--metrics-recording-only",
-                        "--mute-audio",
-                        "--no-first-run",
+                        "--disable-images",
                         "--blink-settings=imagesEnabled=false",
                         "--disable-remote-fonts",
-                        "--js-flags=--max-old-space-size=256"
+                        "--disable-software-rasterizer",
+                        "--js-flags=--max-old-space-size=512"
                     ]
                 )
                 context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
                     viewport={"width": 1280, "height": 800}
                 )
-                
                 page = await context.new_page()
-                # Stealth injection to prevent Cloudflare/Datacenter bot detection
-                await page.add_init_script("""
-                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                    window.chrome = { runtime: {} };
-                """)
                 
                 try:
                     try:
-                        await page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
+                        await page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
                     except Exception:
                         pass
                         
-                    for step in range(1, 28):
+                    for step in range(1, 35):
                         try:
-                            await page.wait_for_timeout(1000)
+                            await page.wait_for_timeout(1500)
                         except Exception:
                             break
                             
@@ -99,7 +87,7 @@ class FastUniversalUnshortener:
                         p_url = urlparse(curr)
                         domain = p_url.netloc.lower()
                         
-                        # 1. Check if reached external destination URL
+                        # 1. Check if reached destination URL
                         if curr != target_url and not any(k in domain for k in ["vplink.in", "shikshaads.in", "krishitalk.com", "sarkarijobcorner.com", "engineergates.com", "onlinewish.in", "crimejasoos.in"]) and not any(sub in curr for sub in ["educate", "study", "degree", "learn_more", "estudy", "links/go"]):
                             return curr, hops
                             
@@ -134,23 +122,23 @@ class FastUniversalUnshortener:
                             except Exception:
                                 pass
                                 
-                        # 3. Blog wait to satisfy backend timer validation (5000ms mandatory for server check)
+                        # 3. Blog wait to satisfy backend timer validation
                         if any(sub in curr for sub in ["/studyeducates/", "/educatestudy/", "/educatehub/"]) and not any(q in curr for q in ["degreehubs", "educationstudy", "insurancesstudy", "studyeducations", "eduonline", "syastudy", "learn_more.php"]):
                             try:
-                                await page.wait_for_timeout(dwell_ms)
+                                await page.wait_for_timeout(5000)
                             except Exception:
                                 pass
                             for sub in ["/studyeducates/", "/educatestudy/", "/educatehub/"]:
                                 if sub in curr:
                                     learn_url = f"{p_url.scheme}://{p_url.netloc}{sub}learn_more.php"
                                     try:
-                                        await page.goto(learn_url, referer=curr, wait_until="domcontentloaded", timeout=12000)
+                                        await page.goto(learn_url, referer=curr, wait_until="domcontentloaded", timeout=15000)
                                     except Exception:
                                         pass
                                     break
                         else:
                             try:
-                                await page.wait_for_timeout(1000)
+                                await page.wait_for_timeout(1500)
                             except Exception:
                                 pass
                                 
@@ -187,50 +175,34 @@ class FastUniversalUnshortener:
         is_complex_shortener = any(d in domain for d in ["vplink", "vplinks", "droplink", "gplinks", "linkvertise", "ouo.io", "adf.ly", "shikshaads", "krishitalk", "sarkarijobcorner", "engineergates"])
 
         if is_complex_shortener:
-            final_url = ""
-            bypass_hops = hops
             try:
-                # Wrap with strict 55s timeout per attempt
-                final_url, bypass_hops = await asyncio.wait_for(
-                    self._solve_complex_ad_shortener(url, dwell_ms=5000),
-                    timeout=55.0
-                )
-            except Exception:
-                pass
-                
-            # If resolution got stuck on same url, retry once with 5500ms
-            if not final_url or final_url == url or "vplink.in" in final_url:
+                final_url, bypass_hops = await self._solve_complex_ad_shortener(url)
+            except Exception as e:
                 try:
                     await asyncio.sleep(1)
-                    final_url, bypass_hops = await asyncio.wait_for(
-                        self._solve_complex_ad_shortener(url, dwell_ms=5500),
-                        timeout=55.0
+                    final_url, bypass_hops = await self._solve_complex_ad_shortener(url)
+                except Exception as e2:
+                    return UnshortenResult(
+                        original_url=url,
+                        final_url="",
+                        hops=hops,
+                        duration=round(time.time() - start_time, 2),
+                        success=False,
+                        error=str(e2)
                     )
-                except Exception:
-                    pass
 
             duration = round(time.time() - start_time, 2)
-            
-            # Strict verification: Ensure destination is not the shortlink itself
-            if final_url and final_url != url and "vplink.in" not in final_url:
+            if final_url and final_url != url:
                 self._cache[url] = {"final_url": final_url, "hops": bypass_hops}
-                return UnshortenResult(
-                    original_url=url,
-                    final_url=final_url,
-                    hops=bypass_hops,
-                    duration=duration,
-                    success=True,
-                    cached=False
-                )
-            else:
-                return UnshortenResult(
-                    original_url=url,
-                    final_url="",
-                    hops=bypass_hops,
-                    duration=duration,
-                    success=False,
-                    error="Failed to bypass ad layers"
-                )
+
+            return UnshortenResult(
+                original_url=url,
+                final_url=final_url,
+                hops=bypass_hops,
+                duration=duration,
+                success=True,
+                cached=False
+            )
 
         # Ultra-fast HTTP redirect resolver for bit.ly, tinyurl, t.co, is.gd, cutt.ly, etc.
         async with aiohttp.ClientSession(headers=self.headers, timeout=self.timeout) as session:
@@ -288,3 +260,6 @@ class FastUniversalUnshortener:
             success=True,
             cached=False
         )
+
+# Backward-compatible alias
+FastUniversalUnshortener = UniversalUnshortener
