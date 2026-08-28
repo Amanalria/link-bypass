@@ -1,4 +1,5 @@
 import os
+import signal
 import asyncio
 import time
 import logging
@@ -67,7 +68,6 @@ async def handle_root(request):
 
 def create_health_app():
     app = web.Application()
-    # add_get automatically supports HEAD requests in aiohttp
     app.router.add_get("/", handle_root)
     app.router.add_get("/health", handle_health_check)
     app.router.add_get("/ping", handle_ping)
@@ -75,7 +75,7 @@ def create_health_app():
 
 async def self_ping_worker():
     """Internal keep-alive background worker that periodically pings itself every 10 minutes"""
-    await asyncio.sleep(60)  # Initial wait for server startup
+    await asyncio.sleep(60)
     logger.info(f"🔄 Self-ping keep-alive background worker active for {RENDER_URL}")
     
     async with aiohttp.ClientSession() as session:
@@ -90,7 +90,7 @@ async def self_ping_worker():
             except Exception as e:
                 logger.debug(f"Self-ping cycle note: {e}")
                 
-            await asyncio.sleep(600)  # Ping every 10 minutes (prevents 15m idle shutdown)
+            await asyncio.sleep(600)
 
 # --- Telegram Bot Handlers ---
 @dp.message(CommandStart())
@@ -257,14 +257,21 @@ async def main():
     # Start web server for Render & UptimeRobot
     await start_web_server()
     
+    # Clean previous webhook / pending updates to prevent polling conflicts
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("🧹 Cleaned old webhooks and pending updates")
+    except Exception as e:
+        logger.warning(f"Webhook reset note: {e}")
+
     # Launch internal self-ping keep-alive task
     asyncio.create_task(self_ping_worker())
     
     logger.info("🚀 Starting Universal Shortlink Bypass Bot polling...")
     try:
-        await dp.start_polling(bot)
+        await dp.start_polling(bot, drop_pending_updates=True, handle_signals=True)
     finally:
-        await unshortener.close()
+        await bot.session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
