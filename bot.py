@@ -8,7 +8,6 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.enums import ParseMode
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 from config import Config
 from unshortener import UniversalUnshortener
@@ -23,8 +22,7 @@ unshortener = UniversalUnshortener(max_hops=Config.MAX_HOPS, timeout=Config.REQU
 
 MAX_BATCH_LINKS = 5
 PORT = int(os.getenv("PORT", "10000"))
-RENDER_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
-WEBHOOK_PATH = "/webhook"
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL", "https://link-bypass-bot-2ndd.onrender.com").rstrip("/")
 
 # --- High-Performance UptimeRobot & Keep-Alive Web Server ---
 async def handle_health_check(request):
@@ -32,7 +30,6 @@ async def handle_health_check(request):
         "status": "healthy",
         "service": "link-bypass-bot",
         "timestamp": int(time.time()),
-        "mode": "webhook" if RENDER_URL else "polling",
         "uptime": "24/7 online",
         "keepalive": "active"
     })
@@ -59,19 +56,24 @@ async def handle_root(request):
 </head>
 <body>
     <div class="card">
-        <div class="badge">🟢 24/7 WEBHOOK DAEMON ACTIVE</div>
+        <div class="badge">🟢 24/7 ONLINE & ACTIVE</div>
         <h1>⚡ Link Bypass Bot is Running</h1>
-        <p>Your Telegram shortlink bypass daemon is live with zero conflict webhook routing and UptimeRobot heartbeat.</p>
+        <p>Your Telegram shortlink bypass daemon is live with 24/7 polling and UptimeRobot heartbeat.</p>
         <a href="https://t.me/Unlinkk_bot" class="btn" target="_blank">Open Telegram Bot 🚀</a>
     </div>
 </body>
 </html>"""
     return web.Response(text=html_content, content_type="text/html")
 
-async def self_ping_worker(app):
+def create_health_app():
+    app = web.Application()
+    app.router.add_get("/", handle_root)
+    app.router.add_get("/health", handle_health_check)
+    app.router.add_get("/ping", handle_ping)
+    return app
+
+async def self_ping_worker():
     """Internal keep-alive background worker that periodically pings itself every 10 minutes"""
-    if not RENDER_URL:
-        return
     await asyncio.sleep(60)
     logger.info(f"🔄 Self-ping keep-alive background worker active for {RENDER_URL}")
     
@@ -89,20 +91,10 @@ async def self_ping_worker(app):
                 
             await asyncio.sleep(600)
 
-async def start_background_tasks(app):
-    app['self_ping_task'] = asyncio.create_task(self_ping_worker(app))
-
-async def cleanup_background_tasks(app):
-    if 'self_ping_task' in app:
-        app['self_ping_task'].cancel()
-        try:
-            await app['self_ping_task']
-        except asyncio.CancelledError:
-            pass
-
 # --- Telegram Bot Handlers ---
 @dp.message(CommandStart())
 async def handle_start(message: types.Message):
+    logger.info(f"📩 Received /start from user {message.from_user.id}")
     welcome_text = (
         "⚡ <b>UNIVERSAL SHORTLINK BYPASS BOT</b>\n"
         "<i>High-Speed Automated Multi-Tier Link Resolver (24/7 Online)</i>\n\n"
@@ -151,6 +143,7 @@ async def callback_help(callback: types.CallbackQuery):
 @dp.message(F.text)
 async def handle_message(message: types.Message):
     text = message.text.strip()
+    logger.info(f"📩 Received message from {message.from_user.id}: {text[:50]}")
     raw_urls = unshortener.extract_urls(text)
 
     if not raw_urls:
@@ -252,52 +245,35 @@ async def handle_message(message: types.Message):
             parse_mode=ParseMode.HTML
         )
 
-async def on_startup(app: web.Application):
-    if RENDER_URL:
-        webhook_url = f"{RENDER_URL}{WEBHOOK_PATH}"
-        logger.info(f"🔗 Setting Telegram Webhook to: {webhook_url}")
-        await bot.set_webhook(url=webhook_url, drop_pending_updates=True)
-    else:
-        logger.info("ℹ️ Running in local mode without webhook URL")
+async def start_web_server():
+    """Starts the lightweight aiohttp health check web server for Render & UptimeRobot on port 10000"""
+    app = create_health_app()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    logger.info(f"🌐 Render Health Check & Keep-Alive web server active on 0.0.0.0:{PORT}")
 
-async def on_shutdown(app: web.Application):
-    if RENDER_URL:
-        logger.info("🧹 Removing Telegram Webhook on shutdown...")
-        await bot.delete_webhook()
-    await bot.session.close()
+async def main():
+    # 1. Start HTTP web server on Render port 10000
+    await start_web_server()
 
-def main():
-    app = web.Application()
-    app.router.add_get("/", handle_root)
-    app.router.add_get("/health", handle_health_check)
-    app.router.add_get("/ping", handle_ping)
-    
-    app.on_startup.append(on_startup)
-    app.on_startup.append(start_background_tasks)
-    app.on_cleanup.append(cleanup_background_tasks)
-    app.on_shutdown.append(on_shutdown)
+    # 2. Reset any previous webhooks so Telegram routes updates cleanly to polling
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        logger.info("🧹 Telegram webhooks wiped clean. Ready for polling updates.")
+    except Exception as e:
+        logger.warning(f"Webhook reset note: {e}")
 
-    # If on Render, setup zero-conflict webhook handler
-    if RENDER_URL:
-        logger.info(f"🚀 Initializing Webhook Server mode for {RENDER_URL} on port {PORT}...")
-        webhook_requests_handler = SimpleRequestHandler(
-            dispatcher=dp,
-            bot=bot,
-        )
-        webhook_requests_handler.register(app, path=WEBHOOK_PATH)
-        setup_application(app, dp, bot=bot)
-        web.run_app(app, host="0.0.0.0", port=PORT)
-    else:
-        # Fallback for local testing without public domain
-        logger.info("🚀 Initializing Polling mode for local test...")
-        async def run_local():
-            runner = web.AppRunner(app)
-            await runner.setup()
-            site = web.TCPSite(runner, "0.0.0.0", PORT)
-            await site.start()
-            await bot.delete_webhook(drop_pending_updates=True)
-            await dp.start_polling(bot, drop_pending_updates=True)
-        asyncio.run(run_local())
+    # 3. Launch internal self-ping worker
+    asyncio.create_task(self_ping_worker())
+
+    # 4. Start active Telegram polling with automated signal handling
+    logger.info("🚀 Starting Universal Shortlink Bypass Bot polling...")
+    try:
+        await dp.start_polling(bot, drop_pending_updates=True, handle_signals=True)
+    finally:
+        await bot.session.close()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
