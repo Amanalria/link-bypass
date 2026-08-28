@@ -67,10 +67,9 @@ async def handle_root(request):
 
 def create_health_app():
     app = web.Application()
+    # add_get automatically supports HEAD requests in aiohttp
     app.router.add_get("/", handle_root)
-    app.router.add_head("/", handle_root)
     app.router.add_get("/health", handle_health_check)
-    app.router.add_head("/health", handle_health_check)
     app.router.add_get("/ping", handle_ping)
     return app
 
