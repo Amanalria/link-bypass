@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: link-bypass-bot
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: PORT
+        value: 10000
+      - key: MAX_HOPS
+        value: "25"
+      - key: REQUEST_TIMEOUT
+        value: "40"
