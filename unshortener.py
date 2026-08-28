@@ -17,15 +17,15 @@ class UnshortenResult:
         self.cached = cached
 
 class FastUniversalUnshortener:
-    def __init__(self, max_hops: int = 25, timeout: int = 45):
+    def __init__(self, max_hops: int = 25, timeout: int = 60):
         self.max_hops = max_hops
         self.timeout = aiohttp.ClientTimeout(total=timeout)
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         }
-        self._sem = asyncio.Semaphore(3)
+        self._sem = asyncio.Semaphore(2)  # Conservative concurrency for Render 512MB RAM
         self._cache = {}
 
     def is_valid_url(self, url: str) -> bool:
@@ -43,7 +43,7 @@ class FastUniversalUnshortener:
         return clean_urls
 
     async def _solve_complex_ad_shortener(self, target_url: str, dwell_ms: int = 5000) -> tuple:
-        """Exact 100% verified solver for vplink.in and multi-tier AdLinkFly networks"""
+        """Render Docker-Hardened Solver with Stealth Evasion & Low-RAM Profile"""
         async with self._sem:
             hops = [target_url]
             async with async_playwright() as p:
@@ -55,28 +55,40 @@ class FastUniversalUnshortener:
                         "--disable-dev-shm-usage",
                         "--disable-blink-features=AutomationControlled",
                         "--disable-gpu",
-                        "--disable-images",
+                        "--disable-software-rasterizer",
+                        "--disable-extensions",
+                        "--disable-background-networking",
+                        "--disable-default-apps",
+                        "--disable-sync",
+                        "--metrics-recording-only",
+                        "--mute-audio",
+                        "--no-first-run",
                         "--blink-settings=imagesEnabled=false",
                         "--disable-remote-fonts",
-                        "--disable-software-rasterizer",
-                        "--js-flags=--max-old-space-size=512"
+                        "--js-flags=--max-old-space-size=256"
                     ]
                 )
                 context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
                     viewport={"width": 1280, "height": 800}
                 )
+                
                 page = await context.new_page()
+                # Stealth injection to prevent Cloudflare/Datacenter bot detection
+                await page.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                    window.chrome = { runtime: {} };
+                """)
                 
                 try:
                     try:
-                        await page.goto(target_url, wait_until="domcontentloaded", timeout=25000)
+                        await page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
                     except Exception:
                         pass
                         
                     for step in range(1, 28):
                         try:
-                            await page.wait_for_timeout(1500)
+                            await page.wait_for_timeout(1000)
                         except Exception:
                             break
                             
@@ -132,13 +144,13 @@ class FastUniversalUnshortener:
                                 if sub in curr:
                                     learn_url = f"{p_url.scheme}://{p_url.netloc}{sub}learn_more.php"
                                     try:
-                                        await page.goto(learn_url, referer=curr, wait_until="domcontentloaded", timeout=15000)
+                                        await page.goto(learn_url, referer=curr, wait_until="domcontentloaded", timeout=12000)
                                     except Exception:
                                         pass
                                     break
                         else:
                             try:
-                                await page.wait_for_timeout(1500)
+                                await page.wait_for_timeout(1000)
                             except Exception:
                                 pass
                                 
@@ -178,15 +190,22 @@ class FastUniversalUnshortener:
             final_url = ""
             bypass_hops = hops
             try:
-                final_url, bypass_hops = await self._solve_complex_ad_shortener(url, dwell_ms=5000)
+                # Wrap with strict 55s timeout per attempt
+                final_url, bypass_hops = await asyncio.wait_for(
+                    self._solve_complex_ad_shortener(url, dwell_ms=5000),
+                    timeout=55.0
+                )
             except Exception:
                 pass
                 
-            # If resolution got stuck on same url, retry with 5500ms
+            # If resolution got stuck on same url, retry once with 5500ms
             if not final_url or final_url == url or "vplink.in" in final_url:
                 try:
                     await asyncio.sleep(1)
-                    final_url, bypass_hops = await self._solve_complex_ad_shortener(url, dwell_ms=5500)
+                    final_url, bypass_hops = await asyncio.wait_for(
+                        self._solve_complex_ad_shortener(url, dwell_ms=5500),
+                        timeout=55.0
+                    )
                 except Exception:
                     pass
 
