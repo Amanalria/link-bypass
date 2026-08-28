@@ -68,7 +68,7 @@ async def handle_root(request):
 </html>"""
     return web.Response(text=html_content, content_type="text/html")
 
-async def self_ping_worker():
+async def self_ping_worker(app):
     """Internal keep-alive background worker that periodically pings itself every 10 minutes"""
     if not RENDER_URL:
         return
@@ -88,6 +88,17 @@ async def self_ping_worker():
                 logger.debug(f"Self-ping cycle note: {e}")
                 
             await asyncio.sleep(600)
+
+async def start_background_tasks(app):
+    app['self_ping_task'] = asyncio.create_task(self_ping_worker(app))
+
+async def cleanup_background_tasks(app):
+    if 'self_ping_task' in app:
+        app['self_ping_task'].cancel()
+        try:
+            await app['self_ping_task']
+        except asyncio.CancelledError:
+            pass
 
 # --- Telegram Bot Handlers ---
 @dp.message(CommandStart())
@@ -261,6 +272,11 @@ def main():
     app.router.add_get("/health", handle_health_check)
     app.router.add_get("/ping", handle_ping)
     
+    app.on_startup.append(on_startup)
+    app.on_startup.append(start_background_tasks)
+    app.on_cleanup.append(cleanup_background_tasks)
+    app.on_shutdown.append(on_shutdown)
+
     # If on Render, setup zero-conflict webhook handler
     if RENDER_URL:
         logger.info(f"🚀 Initializing Webhook Server mode for {RENDER_URL} on port {PORT}...")
@@ -270,9 +286,6 @@ def main():
         )
         webhook_requests_handler.register(app, path=WEBHOOK_PATH)
         setup_application(app, dp, bot=bot)
-        app.on_startup.append(on_startup)
-        app.on_shutdown.append(on_shutdown)
-        asyncio.get_event_loop().create_task(self_ping_worker())
         web.run_app(app, host="0.0.0.0", port=PORT)
     else:
         # Fallback for local testing without public domain

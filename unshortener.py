@@ -72,11 +72,11 @@ class UniversalUnshortener:
 
                 page = await context.new_page()
 
-                # Real-time network response listener to capture AJAX JSON destination token
+                # Real-time network response listener
                 async def handle_response(response):
                     try:
                         resp_url = response.url.lower()
-                        if any(k in resp_url for k in ["/links/go", "/go_link", "/get_link", "/app_vars", "fly_ad"]):
+                        if any(k in resp_url for k in ["/links/go", "/go_link", "/get_link"]):
                             try:
                                 body = await response.json()
                                 if isinstance(body, dict):
@@ -115,12 +115,28 @@ class UniversalUnshortener:
                         p_url = urlparse(curr)
                         domain = p_url.netloc.lower()
 
-                        # 1. Destination check
+                        # 1. External destination check
                         if curr != target_url and not any(k in domain for k in ["vplink.in", "shikshaads.in", "krishitalk.com", "sarkarijobcorner.com", "engineergates.com", "onlinewish.in", "crimejasoos.in"]) and not any(sub in curr for sub in ["educate", "study", "degree", "learn_more", "estudy", "links/go"]):
                             return curr, hops
 
                         # 2. Check vplink final page
                         if "vplink.in" in curr and step > 1:
+                            # Evaluate live JS DOM directly
+                            try:
+                                eval_dest = await page.evaluate("""() => {
+                                    const btn = document.getElementById("gt-link") || document.querySelector(".get-link");
+                                    if (btn && btn.href && btn.href.startsWith("http") && !btn.href.includes("vplink.in") && !btn.href.includes("t.me/+SDtA6sDThtwzN2Rl")) {
+                                        return btn.href;
+                                    }
+                                    return null;
+                                }""")
+                                if eval_dest:
+                                    if eval_dest not in hops:
+                                        hops.append(eval_dest)
+                                    return eval_dest, hops
+                            except Exception:
+                                pass
+
                             try:
                                 html = await page.content()
                                 soup = BeautifulSoup(html, "html.parser")
