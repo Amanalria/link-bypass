@@ -2,7 +2,6 @@ import os
 import asyncio
 import time
 import logging
-import aiohttp
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
@@ -22,48 +21,25 @@ unshortener = UniversalUnshortener(max_hops=Config.MAX_HOPS, timeout=Config.REQU
 
 MAX_BATCH_LINKS = 5
 PORT = int(os.getenv("PORT", "10000"))
-RENDER_URL = os.getenv("RENDER_EXTERNAL_URL", "https://link-bypass-bot-2ndd.onrender.com").rstrip("/")
 
-# --- High-Performance UptimeRobot & Keep-Alive Web Server ---
+# --- Lightweight Health Check Server for Render Web Service ---
 async def handle_health_check(request):
-    return web.json_response({
-        "status": "healthy",
-        "service": "link-bypass-bot",
-        "timestamp": int(time.time()),
-        "uptime": "24/7 online",
-        "keepalive": "active"
-    })
+    return web.json_response({"status": "healthy", "service": "link-bypass-bot", "uptime": "online"})
 
 async def handle_ping(request):
     return web.Response(text="pong", content_type="text/plain")
 
 async def handle_root(request):
-    html_content = """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Universal Link Bypass Bot • Active</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .card { background: #1e293b; padding: 2.5rem; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; max-width: 480px; border: 1px solid #334155; }
-        .badge { background: #10b981; color: #fff; font-size: 0.85rem; padding: 0.35rem 0.75rem; border-radius: 9999px; font-weight: 600; display: inline-block; margin-bottom: 1rem; }
-        h1 { margin: 0 0 0.5rem; font-size: 1.5rem; }
-        p { color: #94a3b8; font-size: 0.95rem; line-height: 1.5; }
-        .btn { display: inline-block; margin-top: 1.5rem; background: #3b82f6; color: white; text-decoration: none; padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; transition: 0.2s; }
-        .btn:hover { background: #2563eb; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="badge">🟢 24/7 ONLINE & ACTIVE</div>
-        <h1>⚡ Link Bypass Bot is Running</h1>
-        <p>Your Telegram shortlink bypass daemon is live with 24/7 polling and UptimeRobot heartbeat.</p>
-        <a href="https://t.me/Unlinkk_bot" class="btn" target="_blank">Open Telegram Bot 🚀</a>
-    </div>
+    html = """<!DOCTYPE html>
+<html>
+<head><title>Universal Link Bypass Bot</title></head>
+<body style="background:#0f172a;color:#f8fafc;font-family:sans-serif;text-align:center;padding:50px;">
+    <h2>⚡ Universal Shortlink Bypass Bot is Running!</h2>
+    <p>Status: 24/7 Online</p>
+    <a href="https://t.me/Unlinkk_bot" style="background:#3b82f6;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;">Open Telegram Bot</a>
 </body>
 </html>"""
-    return web.Response(text=html_content, content_type="text/html")
+    return web.Response(text=html, content_type="text/html")
 
 def create_health_app():
     app = web.Application()
@@ -72,36 +48,22 @@ def create_health_app():
     app.router.add_get("/ping", handle_ping)
     return app
 
-async def self_ping_worker():
-    """Internal keep-alive background worker that periodically pings itself every 10 minutes"""
-    await asyncio.sleep(60)
-    logger.info(f"🔄 Self-ping keep-alive background worker active for {RENDER_URL}")
-    
-    async with aiohttp.ClientSession() as session:
-        while True:
-            try:
-                ping_target = f"{RENDER_URL}/health"
-                async with session.get(ping_target, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status == 200:
-                        logger.info("💓 Keep-alive self-ping heartbeat OK (200)")
-                    else:
-                        logger.warning(f"⚠️ Self-ping returned status {resp.status}")
-            except Exception as e:
-                logger.debug(f"Self-ping cycle note: {e}")
-                
-            await asyncio.sleep(600)
+async def start_web_server():
+    app = create_health_app()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    logger.info(f"🌐 Health check server listening on 0.0.0.0:{PORT}")
 
-# --- Telegram Bot Handlers ---
 @dp.message(CommandStart())
 async def handle_start(message: types.Message):
-    logger.info(f"📩 Received /start from user {message.from_user.id}")
     welcome_text = (
         "⚡ <b>UNIVERSAL SHORTLINK BYPASS BOT</b>\n"
-        "<i>High-Speed Automated Multi-Tier Link Resolver (24/7 Online)</i>\n\n"
+        "<i>High-Speed Automated Multi-Tier Link Resolver</i>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "✨ <b>KEY FEATURES</b>\n"
         f"• <b>Parallel Multi-Bypass:</b> Process up to <b>{MAX_BATCH_LINKS} links</b> simultaneously.\n"
-        "• <b>Turbo Engine:</b> Optimized background solver with instant smart caching.\n"
         "• <b>Full Ad-Shield Resolver:</b> Auto-bypasses multi-page timers, redirects & session checks.\n"
         "• <b>Exact Target Extraction:</b> 100% authentic destination link guarantee.\n\n"
         "🌐 <b>SUPPORTED SHORTENERS</b>\n"
@@ -130,7 +92,7 @@ async def handle_help(message: types.Message):
         f"2️⃣ <b>Send to Bot:</b>\n"
         f"• Paste links directly in chat (up to <b>{MAX_BATCH_LINKS} links</b> per message).\n\n"
         "3️⃣ <b>Get Direct Links:</b>\n"
-        "• The turbo engine solves all countdown timers, publisher blogs, and session tokens concurrently and provides clean destination links.\n"
+        "• The engine solves all countdown timers, publisher blogs, and session tokens concurrently and provides clean destination links.\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━"
     )
     await message.answer(help_text, parse_mode=ParseMode.HTML)
@@ -143,7 +105,6 @@ async def callback_help(callback: types.CallbackQuery):
 @dp.message(F.text)
 async def handle_message(message: types.Message):
     text = message.text.strip()
-    logger.info(f"📩 Received message from {message.from_user.id}: {text[:50]}")
     raw_urls = unshortener.extract_urls(text)
 
     if not raw_urls:
@@ -171,7 +132,7 @@ async def handle_message(message: types.Message):
         status_text = (
             f"🚀 <b>PARALLEL BYPASS IN PROGRESS ({total_count} Links)</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "⚡ <b>Engine:</b> <i>Concurrent multi-thread turbo resolver</i>\n"
+            "⚡ <b>Engine:</b> <i>Concurrent multi-thread resolver</i>\n"
             "⏳ <i>Processing all links simultaneously. Please wait a moment...</i>"
         )
 
@@ -194,15 +155,14 @@ async def handle_message(message: types.Message):
                     f"🔗 <b>Short URL:</b>\n<code>{original_url}</code>\n\n"
                     f"❌ <b>Status:</b> <i>Timeout / Could not resolve link</i>"
                 )
-            elif res.success and res.final_url and res.final_url != original_url:
+            elif res.success and res.final_url:
                 success_count += 1
                 hop_str = f"{len(res.hops)-1} Redirect Hops Bypassed" if len(res.hops) > 1 else "Direct Fast Resolution"
-                cached_tag = " • ⚡ Instant Cache" if res.cached else ""
                 item_card = (
                     f"🏷️ <b>LINK #{idx}</b>\n"
                     f"🔗 <b>Short URL:</b>\n<code>{original_url}</code>\n\n"
                     f"🎯 <b>Original Destination:</b>\n<code>{res.final_url}</code>\n\n"
-                    f"📊 <b>Telemetry:</b> <code>{hop_str} • {res.duration}s{cached_tag}</code>"
+                    f"📊 <b>Telemetry:</b> <code>{hop_str} • {res.duration}s</code>"
                 )
                 if res.final_url.startswith("http"):
                     btn_label = f"🌐 Open Link #{idx}" if total_count > 1 else "🌐 Open Destination Link"
@@ -245,35 +205,14 @@ async def handle_message(message: types.Message):
             parse_mode=ParseMode.HTML
         )
 
-async def start_web_server():
-    """Starts the lightweight aiohttp health check web server for Render & UptimeRobot on port 10000"""
-    app = create_health_app()
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    await site.start()
-    logger.info(f"🌐 Render Health Check & Keep-Alive web server active on 0.0.0.0:{PORT}")
-
 async def main():
-    # 1. Start HTTP web server on Render port 10000
     await start_web_server()
-
-    # 2. Reset any previous webhooks so Telegram routes updates cleanly to polling
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        logger.info("🧹 Telegram webhooks wiped clean. Ready for polling updates.")
-    except Exception as e:
-        logger.warning(f"Webhook reset note: {e}")
-
-    # 3. Launch internal self-ping worker
-    asyncio.create_task(self_ping_worker())
-
-    # 4. Start active Telegram polling with automated signal handling
+    except Exception:
+        pass
     logger.info("🚀 Starting Universal Shortlink Bypass Bot polling...")
-    try:
-        await dp.start_polling(bot, drop_pending_updates=True, handle_signals=True)
-    finally:
-        await bot.session.close()
+    await dp.start_polling(bot, drop_pending_updates=True, handle_signals=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
