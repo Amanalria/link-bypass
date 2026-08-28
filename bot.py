@@ -2,6 +2,7 @@ import os
 import asyncio
 import time
 import logging
+import aiohttp
 from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
@@ -21,34 +22,83 @@ unshortener = FastUniversalUnshortener(max_hops=Config.MAX_HOPS, timeout=Config.
 
 MAX_BATCH_LINKS = 5
 PORT = int(os.getenv("PORT", "10000"))
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL", "https://link-bypass-bot-2ndd.onrender.com")
 
-# --- Lightweight Health Check Server for Render Web Service ---
+# --- High-Performance UptimeRobot & Keep-Alive Web Server ---
 async def handle_health_check(request):
     return web.json_response({
         "status": "healthy",
         "service": "link-bypass-bot",
         "timestamp": int(time.time()),
-        "uptime": "online"
+        "uptime": "24/7 online",
+        "keepalive": "active"
     })
 
+async def handle_ping(request):
+    return web.Response(text="pong", content_type="text/plain")
+
 async def handle_root(request):
-    return web.Response(
-        text="<h2>⚡ Universal Shortlink Bypass Bot is Running!</h2><p>Send links to your Telegram bot to bypass.</p>",
-        content_type="text/html"
-    )
+    html_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Link Bypass Bot • Active</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .card { background: #1e293b; padding: 2.5rem; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; max-width: 480px; border: 1px solid #334155; }
+        .badge { background: #10b981; color: #fff; font-size: 0.85rem; padding: 0.35rem 0.75rem; border-radius: 9999px; font-weight: 600; display: inline-block; margin-bottom: 1rem; }
+        h1 { margin: 0 0 0.5rem; font-size: 1.5rem; }
+        p { color: #94a3b8; font-size: 0.95rem; line-height: 1.5; }
+        .btn { display: inline-block; margin-top: 1.5rem; background: #3b82f6; color: white; text-decoration: none; padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; transition: 0.2s; }
+        .btn:hover { background: #2563eb; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="badge">🟢 24/7 KEEP-ALIVE ACTIVE</div>
+        <h1>⚡ Link Bypass Bot is Running</h1>
+        <p>Your Telegram shortlink bypass daemon is live and listening on Render with automated UptimeRobot heartbeat.</p>
+        <a href="https://t.me/Unlinkk_bot" class="btn" target="_blank">Open Telegram Bot 🚀</a>
+    </div>
+</body>
+</html>"""
+    return web.Response(text=html_content, content_type="text/html")
 
 def create_health_app():
     app = web.Application()
     app.router.add_get("/", handle_root)
+    app.router.add_head("/", handle_root)
     app.router.add_get("/health", handle_health_check)
+    app.router.add_head("/health", handle_health_check)
+    app.router.add_get("/ping", handle_ping)
     return app
+
+async def self_ping_worker():
+    """Internal keep-alive background worker that periodically pings itself every 10 minutes"""
+    await asyncio.sleep(60)  # Initial wait for server startup
+    logger.info(f"🔄 Self-ping keep-alive background worker active for {RENDER_URL}")
+    
+    async with aiohttp.ClientSession() as session:
+        while True:
+            try:
+                ping_target = f"{RENDER_URL.rstrip('/')}/health"
+                async with session.get(ping_target, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status == 200:
+                        logger.info("💓 Keep-alive self-ping heartbeat OK (200)")
+                    else:
+                        logger.warning(f"⚠️ Self-ping returned status {resp.status}")
+            except Exception as e:
+                logger.debug(f"Self-ping cycle note: {e}")
+                
+            await asyncio.sleep(600)  # Ping every 10 minutes (prevents 15m idle shutdown)
 
 # --- Telegram Bot Handlers ---
 @dp.message(CommandStart())
 async def handle_start(message: types.Message):
     welcome_text = (
         "⚡ <b>UNIVERSAL SHORTLINK BYPASS BOT</b>\n"
-        "<i>High-Speed Automated Multi-Tier Link Resolver</i>\n\n"
+        "<i>High-Speed Automated Multi-Tier Link Resolver (24/7 Online)</i>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "✨ <b>KEY FEATURES</b>\n"
         f"• <b>Parallel Multi-Bypass:</b> Process up to <b>{MAX_BATCH_LINKS} links</b> simultaneously.\n"
@@ -196,17 +246,21 @@ async def handle_message(message: types.Message):
         )
 
 async def start_web_server():
-    """Starts the lightweight aiohttp health check web server for Render"""
+    """Starts the lightweight aiohttp health check web server for Render & UptimeRobot"""
     app = create_health_app()
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", PORT)
     await site.start()
-    logger.info(f"🌐 Health check web server listening on 0.0.0.0:{PORT}")
+    logger.info(f"🌐 Health check & keep-alive web server listening on 0.0.0.0:{PORT}")
 
 async def main():
-    # Start web server for Render health check
+    # Start web server for Render & UptimeRobot
     await start_web_server()
+    
+    # Launch internal self-ping keep-alive task
+    asyncio.create_task(self_ping_worker())
+    
     logger.info("🚀 Starting Universal Shortlink Bypass Bot polling...")
     try:
         await dp.start_polling(bot)
